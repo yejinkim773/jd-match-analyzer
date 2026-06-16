@@ -8,7 +8,7 @@ from datetime import date, datetime
 
 from modules.analyzer import analyze_match, extract_text_from_image
 from modules.crawler import fetch_images_from_url, fetch_jd_from_url
-from modules.sheets_api import fetch_jobs, save_result, update_applied
+from modules.sheets_api import fetch_jobs, save_result, update_applied, delete_job
 
 st.set_page_config(page_title="JD 매칭 분석기", page_icon="🎯", layout="wide")
 st.title("🎯 이력서 × JD 매칭 분석기")
@@ -220,6 +220,7 @@ with tab2:
                 if st.button("📊 Google Sheets에 저장", type="primary", use_container_width=True):
                     try:
                         save_result(result, st.session_state.get("jd_url", ""))
+                        st.session_state.jobs_cache = None  # Tab 3 캐시 무효화
                         st.success("✅ Google Sheets에 저장됐어요!")
                     except Exception as e:
                         import traceback
@@ -267,6 +268,8 @@ with tab3:
     jobs = st.session_state.jobs_cache
 
     if jobs:
+
+
         today = date.today()
 
         # 마감 임박 알림 배너
@@ -307,7 +310,6 @@ with tab3:
                     def _on_toggle(row=j["row"]):
                         new_val = st.session_state[f"applied_{row}"]
                         update_applied(row, new_val)
-                        # 로컬 캐시도 즉시 반영 — 리런 시 재호출 없이 반영
                         for cached in st.session_state.jobs_cache:
                             if cached["row"] == row:
                                 cached["applied"] = new_val
@@ -320,6 +322,27 @@ with tab3:
                     )
                     if j["url"]:
                         st.link_button("공고 보기", j["url"])
+                    # 삭제 버튼 — 실수 방지용 2단계
+                    if st.session_state.get(f"confirm_delete_{j['row']}"):
+                        st.caption("정말 삭제할까요?")
+                        col_yes, col_no = st.columns(2)
+                        with col_yes:
+                            if st.button("삭제", key=f"del_yes_{j['row']}", type="primary"):
+                                delete_job(j["row"])
+                                st.session_state.jobs_cache = [
+                                    c for c in st.session_state.jobs_cache
+                                    if c["row"] != j["row"]
+                                ]
+                                st.session_state.pop(f"confirm_delete_{j['row']}", None)
+                                st.rerun()
+                        with col_no:
+                            if st.button("취소", key=f"del_no_{j['row']}"):
+                                st.session_state.pop(f"confirm_delete_{j['row']}", None)
+                                st.rerun()
+                    else:
+                        if st.button("🗑️", key=f"del_{j['row']}", help="공고 삭제"):
+                            st.session_state[f"confirm_delete_{j['row']}"] = True
+                            st.rerun()
     else:
         st.info("아직 저장된 공고가 없어요. JD 분석 후 Google Sheets에 저장해보세요!")
 
